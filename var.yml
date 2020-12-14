@@ -1,0 +1,10 @@
+name_ip:
+name_port:
+nn_dir: /nn
+dn_dir: /dn1
+region: ap-south-1
+subnet: subnet-b6c8dfde
+sg: arth_sg
+type: t2.micro
+number: 1
+dest_f: /home/ec2-user/
