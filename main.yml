@@ -1,0 +1,208 @@
+- hosts: localhost
+  vars_files:
+          - mycred1.yml
+          - var.yml
+  tasks:
+  - name: launch ec2-instance
+    ec2:
+            key_name: arth
+            instance_type: "{{ type }}"
+            image: ami-0a9d27a9f4f5c0efc
+            wait: true
+            group: "{{ sg }}"
+            count: "{{ number }}"
+            vpc_subnet_id: "{{ subnet }}"
+            assign_public_ip: yes
+            region: "{{ region }}"
+            state: present
+            aws_access_key: "{{ access_key }}"
+            aws_secret_key: "{{ secret_key }}"
+            instance_tags:
+                    Name: namenode
+    register: ec2
+  - name: add public ip of newinstances
+    add_host:
+            hostname: "{{ item.public_ip }}"
+            groupname:  namenode
+    loop: "{{ ec2.instances }}"
+  - name: wait for ssh come
+    wait_for:
+            host: "{{ item.public_dns_name }}"
+            port: 22
+            state: started
+    loop: "{{ ec2.instances }}"
+
+
+- hosts: namenode
+  gather_facts: no
+  vars_files:
+          - var.yml
+  tasks:
+          - name: get java-soft
+            get_url:
+                    url: "https://lalitbucket6033.s3.ap-south-1.amazonaws.com/jdk-8u171-linux-x64.rpm"
+                    dest: "{{ dest_f }}"
+
+          - name: get hadoop-soft
+            get_url:
+                    url: "https://archive.apache.org/dist/hadoop/core/hadoop-1.2.1/hadoop-1.2.1-1.x86_64.rpm"
+                    dest: "{{ dest_f }}"
+
+          - name: chk java installation
+            shell:
+                    cmd: "sudo rpm -q jdk1.8"
+            ignore_errors: True
+            register: java_check
+          - name: install java-software
+            shell:
+                    cmd: "sudo rpm -ivh /{{ dest_f }}/jdk-8u171-linux-x64.rpm"
+            when: java_check.rc != 0
+            register: java_install
+
+          - name: checking hadoop instalation
+            shell:
+                    cmd: "sudo rpm -q hadoop"
+            ignore_errors: True
+            register: hadoop_check
+          - name: install hadoop-software
+            shell:
+                    cmd: "sudo rpm -ivh /{{ dest_f }}/hadoop-1.2.1-1.x86_64.rpm  --force"
+            when: hadoop_check.rc != 0
+            when: java_install.rc == 0
+            register: hadoop_install
+          - name: copy hdfs-site_file
+            template:
+                  src: "n_hdfs-site.xml"
+                  dest: "/etc/hadoop/hdfs-site.xml"
+                  owner: root
+                  group: root
+
+          - name: copy core-site_file
+            template:
+                  src: "n_core-site.xml"
+                  dest: "/etc/hadoop/core-site.xml"
+
+          - name: create_nn_folder
+            file:
+                    state: directory
+                    path: "{{ nn_dir }}"
+          - name: format_namenode
+            shell: "sudo echo Y | hadoop namenode -format"
+
+          - name: start namenode service
+            shell:
+                    cmd: "sudo hadoop-daemon.sh start namenode"
+            register: namenode_start
+
+
+- hosts: localhost
+  vars_files:
+          - mycred1.yml
+          - var.yml
+  tasks:
+  - name: launch ec2-instance
+    ec2:
+            key_name: arth
+            instance_type: "{{ type }}"
+            image: ami-0a9d27a9f4f5c0efc
+            wait: true
+            group: "{{ sg }}"
+            count: "{{ number }}"
+            vpc_subnet_id: "{{ subnet }}"
+            assign_public_ip: yes
+            region: "{{ region }}"
+            state: present
+            aws_access_key: "{{ access_key }}"
+            aws_secret_key: "{{ secret_key }}"
+            instance_tags:
+                    Name: datanode
+    register: ec2
+  - name: add public ip of newinstances
+    add_host:
+            hostname: "{{ item.public_ip }}"
+            groupname:  datanode
+    loop: "{{ ec2.instances }}"
+  - name: wait for ssh come
+    wait_for:
+            host: "{{ item.public_dns_name }}"
+            port: 22
+            state: started
+    loop: "{{ ec2.instances }}"
+
+
+- hosts: datanode
+  gather_facts: no
+  vars_files:
+          - var.yml
+
+  tasks:
+          - name: get jdk-soft
+            get_url:
+                    url: "https://lalitbucket6033.s3.ap-south-1.amazonaws.com/jdk-8u171-linux-x64.rpm"
+                    dest: "{{ dest_f }}"
+          - name: get_hadooop_soft
+            get_url:
+                    url: "https://archive.apache.org/dist/hadoop/core/hadoop-1.2.1/hadoop-1.2.1-1.x86_64.rpm"
+                    dest: "{{ dest_f }}"
+          - name: check_jdk_instalation
+            shell:
+                    cmd: "sudo rpm -q jdk1.8"
+            ignore_errors: True
+            register: jdk_checked1
+          - name: install jdk
+            shell:
+                    cmd: "sudo rpm -ivh /{{ dest_f }}/jdk-8u171-linux-x64.rpm"
+            when: jdk_checked1.rc != 0
+            register: jdk_install1
+          - name: checking hadoop installed or not
+            shell:
+                    cmd: "sudo rpm -q hadoop"
+            ignore_errors: True
+            register: hadoop_checked1
+          - name: installation of hadoop
+            shell:
+                    cmd: "sudo rpm -ivh /{{ dest_f }}/hadoop-1.2.1-1.x86_64.rpm  --force"
+            when: hadoop_checked1.rc != 0
+            register: hadoop_installed1
+          - name: copy_hdfs-file
+            template:
+                  src: "d_hdfs-site.xml"
+                  dest: "/etc/hadoop/hdfs-site.xml"
+          - name: copy-core_file
+            template:
+                  src: "d_core-site.xml"
+                  dest: "/etc/hadoop/core-site.xml"
+          - name: creating dn storage folder
+            file:
+                    state: directory
+                    path: "{{ dn_dir }}"
+          - name: start datanode service
+            shell:
+                    cmd: "sudo hadoop-daemon.sh start datanode"
+            register: datanode_start
+
+- hosts: namenode
+  gather_facts: no
+  tasks:
+          - name: chk hadoop0cluster
+            shell:
+                    cmd:  "jps"
+            register: jps
+          - name: chk datanode connected or not
+            shell:
+                    cmd:  "hadoop dfsadmin -report"
+            register: dfs
+          - debug:
+                  var: jps
+                  var: dfs
+
+
+- hosts: datanode
+  gather_facts: no
+  tasks:
+          - name: chk datanode start or not
+            shell:
+                    cmd: "jps"
+            register: j1
+          - debug:
+                  var: j1
